@@ -1,0 +1,6 @@
+USE projectdb;
+INSERT OVERWRITE LOCAL DIRECTORY 'q4'
+ROW FORMAT DELIMITED 
+FIELDS TERMINATED BY ','
+SELECT SUM(Score_1), SUM(Score_2), SUM(Score_3), SUM(Score_4), SUM(Score_5), SUM(Score_6), SUM(Score_7), SUM(Score_8), SUM(Score_9), SUM(Score_10)
+FROM anime;
