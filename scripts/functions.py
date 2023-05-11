@@ -15,6 +15,9 @@ from pyspark.ml.feature import Normalizer
 from pyspark.ml.feature import BucketedRandomProjectionLSH
 from pyspark.sql.types import ArrayType, IntegerType
 from pyspark.ml.linalg import Vectors, VectorUDT
+import sys
+reload(sys)
+sys.setdefaultencoding('utf-8')
 SPARK, SC = None, None
 
 
@@ -69,11 +72,13 @@ def read_tables():
     return anime, anime_list
 
 
-def preprocess_data(anime, anime_list):
+def preprocess_data(anime, anime_list, threshold_anime=5000, threshold_user=1500):
     """
     Preprocess data
     :param anime: anime table
     :param anime_list: anime_list table
+    :param threshold_anime: the anime has more than {threshold} votes
+    :param threshold_user: the users have given more than {threshold} votes to the anime
     :return: preprocessed data
     """
     anime_names = anime.select("MAL_ID", "Name", "Popularity")\
@@ -94,7 +99,7 @@ def preprocess_data(anime, anime_list):
         .withColumn("user_total_votes", count("*")
                     .over(Window.partitionBy("user_id")))
     anime_df_filtered = anime_list\
-        .filter((anime_list.anime_total_votes > 10000) & (anime_list.user_total_votes > 2500))
+        .filter((anime_list.anime_total_votes > 5000) & (anime_list.user_total_votes > 1500))
     return anime_df_filtered
 
 
@@ -287,11 +292,11 @@ def save_model(model, name):
     save the model
     :param model: pyspark model
     :param name: name of the model
-    :return: Non
+    :return: None
     """
-    path = "./model/" + name
-    model.save(path)
-    print name + "Saved in " + path
+    path = "./models/" + name
+    model.write().overwrite().save(path)
+    print name + " Saved in " + path
     return
 
 
@@ -327,17 +332,16 @@ def preprocess_data_second_model(transformed):
     user_item = users.crossJoin(items)
     # pred_df = model.transform(user_item)
     df = user_item.join(transformed.select("user_id_index", "anime_id_index", "rating"),
-                        (transformed.user_id_index == user_item.user_id_index) & (
-                                transformed.anime_id_index == user_item.anime_id_index),
-                        "left").select(transformed.user_id_index, transformed.anime_id_index,
-                                       transformed.rating).na.fill(value=0)
+                        (transformed.user_id_index == user_item.user_id_index) &
+                        (transformed.anime_id_index == user_item.anime_id_index), "left")\
+        .select(transformed.user_id_index, transformed.anime_id_index, transformed.rating)\
+        .na.fill(value=0)
 
     list_to_vector_udf = udf(lambda l: Vectors.dense(l), VectorUDT())
     matrix = (
         df.groupBy("user_id_index")
         .agg(F.sort_array(F.collect_list(F.struct("anime_id_index", "rating")), asc=True)
-             .alias("anime_list")
-             )
+             .alias("anime_list"))
         .withColumn("rating", F.col("anime_list.rating"))
         .drop("anime_list")
     ).sort("user_id_index").withColumn("rating", F.col("rating").cast(ArrayType(IntegerType())))
@@ -367,22 +371,20 @@ def make_pred_second_model(model, df, train_df):
         df,
         threshold=1,
         distCol="distance").selectExpr('datasetA.user_id_index as user_a',
-                                       'datasetB.user_id_index as user_b', 'distance').filter(
-        F.col("distance") > 0).groupBy("user_a").agg(expr("min(distance) as distance"),
-                                                   expr("first(user_b) as user_b"))
+                                       'datasetB.user_id_index as user_b', 'distance')\
+        .filter(F.col("distance") > 0).groupBy("user_a")\
+        .agg(expr("min(distance) as distance"), expr("first(user_b) as user_b"))
 
     pred = train_df.join(nearest_neighbors,
-                        nearest_neighbors.user_a == train_df.user_id_index, "left").na.fill(value=0)
-
+                         nearest_neighbors.user_a == train_df.user_id_index, "left")\
+        .na.fill(value=0)
 
     items_for_user_pred = (
         pred.groupBy("user_b")
         .agg(F.sort_array(F.collect_list(F.struct("rating", "anime_id_index")), asc=False)
-             .alias("collected_list")
-             )
+             .alias("collected_list"))
         .withColumn("pred_list", F.col("collected_list.anime_id_index"))
         .withColumnRenamed("user_b", "user_id_index")
-        .drop("collected_list")
-    )
+        .drop("collected_list"))
 
     return items_for_user_pred

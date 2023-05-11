@@ -1,0 +1,1 @@
+{"class":"org.apache.spark.ml.feature.BucketedRandomProjectionLSHModel","timestamp":1683835801836,"sparkVersion":"3.0.3","uid":"BucketedRandomProjectionLSH_cf5c03c70416","paramMap":{"numHashTables":10,"inputCol":"norm_features","bucketLength":0.1,"outputCol":"hashes"},"defaultParamMap":{"numHashTables":1,"outputCol":"BucketedRandomProjectionLSH_cf5c03c70416__output"}}
