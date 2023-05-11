@@ -1,4 +1,4 @@
-hdfs dfs -rm /project/avsc/*
+hdfs dfs -rm -r /project/avsc/
 hdfs dfs -mkdir /project/avsc
 
 hdfs dfs -put /project/avsc/*.avsc /project/avsc

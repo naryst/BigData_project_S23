@@ -140,6 +140,7 @@ data = [
     ["Baseline", 0.00309840306841, 0.24899296692],
     ["ALS model", 0.315916460769, 0.589849124161],
     ["ALS after tuning", 0.308796228157, 0.505887802758],
+    ["User based collaborative filtering", 0.134209365282, 0.10328201095]
 ]
 
 Metrics_df = pd.DataFrame(data, columns=Metrics)
@@ -149,4 +150,5 @@ st.title("Metrics of the models")
 Style = {"font-size": "25px"}
 Metrics_df = Metrics_df.style.set_properties(**Style)
 st.table(Metrics_df)
+st.write("Since collabarative filtering requires lots of computation power, we run this method on less data")
 

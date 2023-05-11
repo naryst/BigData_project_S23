@@ -10,7 +10,11 @@ from pyspark.ml import Pipeline
 from pyspark.sql.types import ArrayType, DoubleType
 from pyspark.sql.functions import udf
 from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
-from pyspark.sql.functions import expr
+from pyspark.sql.functions import expr, desc
+from pyspark.ml.feature import Normalizer
+from pyspark.ml.feature import BucketedRandomProjectionLSH
+from pyspark.sql.types import ArrayType, IntegerType
+from pyspark.ml.linalg import Vectors, VectorUDT
 SPARK, SC = None, None
 
 
@@ -37,6 +41,7 @@ def set_connect():
         .getOrCreate()
 
     SC = SPARK.sparkContext
+    SC.setLogLevel('WARN')
     return
 
 
@@ -89,7 +94,7 @@ def preprocess_data(anime, anime_list):
         .withColumn("user_total_votes", count("*")
                     .over(Window.partitionBy("user_id")))
     anime_df_filtered = anime_list\
-        .filter((anime_list.anime_total_votes > 5000) & (anime_list.user_total_votes > 1500))
+        .filter((anime_list.anime_total_votes > 10000) & (anime_list.user_total_votes > 2500))
     return anime_df_filtered
 
 
@@ -149,7 +154,7 @@ def calculate_true_values(test_df):
     :return:
     """
     items_for_user_true = (
-        test_df.filter(test_df.rating > 4).groupBy("user_id_index")
+        test_df.filter(test_df.rating > 6).groupBy("user_id_index")
         .agg(expr("collect_list(" + "anime_id_index" + ") as ground_truth"))
         .select("user_id_index", "ground_truth")
     )
@@ -196,9 +201,10 @@ def evaluate(name, pred, items_for_user_true):
     print name + " NDCG at 5 = " + str(ndcg_at_5)
 
 
-def make_pred_first_model(model, train_df, transformed):
+def make_pred_first_model(model, train_df, transformed, test_df):
     """
     make a prediction for ALS model and make it to prediction format
+    :param test_df: test dataframe
     :param model: trained ALS model
     :param train_df: train dataframe
     :param transformed: whole dataframe
@@ -221,11 +227,11 @@ def make_pred_first_model(model, train_df, transformed):
     items_for_user_pred = (
         dfs_pred_final.groupBy("user_id_index")
         .agg(F.sort_array(F.collect_list(F.struct("prediction", "anime_id_index")), asc=False)
-             .alias("collected_list")
-             )
+             .alias("collected_list"))
         .withColumn("pred_list", F.col("collected_list.anime_id_index"))
-        .drop("collected_list")
-    )
+        .drop("collected_list"))
+
+    print_example(dfs_pred_final, test_df)
 
     return items_for_user_pred
 
@@ -244,6 +250,7 @@ def first_model(train_df, max_iter=15, reg_param=0.09, rank=10):
               itemCol="anime_id_index",
               ratingCol="rating",
               coldStartStrategy="drop",
+              seed=42,
               nonnegative=True)
     model = als.fit(train_df)
 
@@ -256,7 +263,7 @@ def grid_search_first_model(train_df):
     :param train_df: train dataframe
     :return: best ALS model
     """
-    als_model = ALS(maxIter=15, userCol="user_id_index",
+    als_model = ALS(maxIter=15, userCol="user_id_index", seed=42,
                     itemCol="anime_id_index", ratingCol="rating",
                     coldStartStrategy="drop", nonnegative=True)
     params = ParamGridBuilder().addGrid(als_model.regParam, [0.001, 0.1, 1.0])\
@@ -265,7 +272,7 @@ def grid_search_first_model(train_df):
                                     labelCol='rating',
                                     predictionCol='prediction')
     cross_validator = CrossValidator(estimator=als_model, estimatorParamMaps=params,
-                                     evaluator=evaluator, numFolds=4, parallelism=4)
+                                     evaluator=evaluator, numFolds=4)
     best_model = cross_validator.fit(train_df)
     grid_model = best_model.bestModel
 
@@ -274,3 +281,108 @@ def grid_search_first_model(train_df):
 
     return grid_model
 
+
+def save_model(model, name):
+    """
+    save the model
+    :param model: pyspark model
+    :param name: name of the model
+    :return: Non
+    """
+    path = "./model/" + name
+    model.save(path)
+    print name + "Saved in " + path
+    return
+
+
+def print_example(pred, true):
+    """
+    choose random example and print for
+    him prediction and true labels
+    :param pred: predictions
+    :param true: true labels
+    :return: None
+    """
+    random_user = \
+        true.select("user_id_index").sample(fraction=0.1).select("user_id_index").orderBy(
+            F.rand()).first()[0]
+
+    temp_true = true.dropDuplicates(['anime_id_index'])
+
+    pred = pred.join(temp_true, pred.anime_id_index == temp_true.anime_id_index, "inner").select(
+        pred.prediction, temp_true.Name, pred.user_id_index)
+    print "Top-5 PREDICTIONs"
+    pred = pred.filter(pred.user_id_index == random_user).orderBy(desc("prediction")).limit(5)
+    print pred.select("Name").show()
+    print "---------------------------------------------------"
+    print "TRUE LABELS"
+    true = true.filter((true.rating > 6) & (true.user_id_index == random_user)).orderBy(
+        desc("rating"))
+    print true.select("Name").show()
+
+
+def preprocess_data_second_model(transformed):
+    users = transformed.select("user_id_index").distinct()
+    items = transformed.select("anime_id_index").distinct()
+    user_item = users.crossJoin(items)
+    # pred_df = model.transform(user_item)
+    df = user_item.join(transformed.select("user_id_index", "anime_id_index", "rating"),
+                        (transformed.user_id_index == user_item.user_id_index) & (
+                                transformed.anime_id_index == user_item.anime_id_index),
+                        "left").select(transformed.user_id_index, transformed.anime_id_index,
+                                       transformed.rating).na.fill(value=0)
+
+    list_to_vector_udf = udf(lambda l: Vectors.dense(l), VectorUDT())
+    matrix = (
+        df.groupBy("user_id_index")
+        .agg(F.sort_array(F.collect_list(F.struct("anime_id_index", "rating")), asc=True)
+             .alias("anime_list")
+             )
+        .withColumn("rating", F.col("anime_list.rating"))
+        .drop("anime_list")
+    ).sort("user_id_index").withColumn("rating", F.col("rating").cast(ArrayType(IntegerType())))
+
+    matrix = matrix.withColumn("rating", list_to_vector_udf(matrix.rating))
+
+    normalizer = Normalizer(inputCol="rating", outputCol="norm_features")
+    df = normalizer.transform(matrix)
+    return df
+
+
+def second_model(df, num_hashes=10, bucket_length=0.1):
+    # Hash feature vectors using LSH
+    lsh = BucketedRandomProjectionLSH(
+        inputCol="norm_features",
+        outputCol="hashes",
+        numHashTables=num_hashes,
+        bucketLength=bucket_length
+    )
+    model = lsh.fit(df)
+    return model
+
+
+def make_pred_second_model(model, df, train_df):
+    nearest_neighbors = model.approxSimilarityJoin(
+        df,
+        df,
+        threshold=1,
+        distCol="distance").selectExpr('datasetA.user_id_index as user_a',
+                                       'datasetB.user_id_index as user_b', 'distance').filter(
+        F.col("distance") > 0).groupBy("user_a").agg(expr("min(distance) as distance"),
+                                                   expr("first(user_b) as user_b"))
+
+    pred = train_df.join(nearest_neighbors,
+                        nearest_neighbors.user_a == train_df.user_id_index, "left").na.fill(value=0)
+
+
+    items_for_user_pred = (
+        pred.groupBy("user_b")
+        .agg(F.sort_array(F.collect_list(F.struct("rating", "anime_id_index")), asc=False)
+             .alias("collected_list")
+             )
+        .withColumn("pred_list", F.col("collected_list.anime_id_index"))
+        .withColumnRenamed("user_b", "user_id_index")
+        .drop("collected_list")
+    )
+
+    return items_for_user_pred

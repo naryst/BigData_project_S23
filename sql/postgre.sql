@@ -76,10 +76,10 @@ CREATE TABLE RATINGS
 
 
 -- load data from csv files
-\copy watch_status from '/root/project_data/watching_status.csv' DELIMITER ',' CSV HEADER;
-\copy anime from '/root/project_data/anime.csv' DELIMITER ',' CSV HEADER;
-\copy ratings from '/root/project_data/rating_complete.csv' DELIMITER ',' CSV HEADER;
-\copy anime_list from '/root/project_data/animelist.csv' DELIMITER ',' CSV HEADER;
+\copy watch_status from 'data/watching_status.csv' DELIMITER ',' CSV HEADER;
+\copy anime from 'data/anime.csv' DELIMITER ',' CSV HEADER;
+\copy ratings from 'data/rating_complete.csv' DELIMITER ',' CSV HEADER;
+\copy anime_list from 'data/animelist.csv' DELIMITER ',' CSV HEADER;
 
 DELETE FROM anime_list
 WHERE watch_status NOT IN
