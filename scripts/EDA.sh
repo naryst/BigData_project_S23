@@ -23,4 +23,16 @@ hive -f sql/eda_queries/q4.hql
 echo "score_1,score_2,score_3,score_4,score_5,score_6,score_7,score_8,score_9,score_10" > output/q4.csv
 cat q4/* >> output/q4.csv
 
+
+hive -f sql/eda_queries/q5.hql
+
+echo "unique_anime,unique_user" > output/q5.csv
+cat q5/* >> output/q5.csv
+
+hive -f sql/eda_queries/q6.hql
+
+echo "user_id,ratings_count" > output/q6.csv
+cat q6/* >> output/q6.csv
+
+
 rm -rf q*
