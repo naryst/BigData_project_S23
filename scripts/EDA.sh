@@ -34,5 +34,9 @@ hive -f sql/eda_queries/q6.hql
 echo "user_id,ratings_count" > output/q6.csv
 cat q6/* >> output/q6.csv
 
+hive -f sql/eda_queries/q7.hql
+
+echo "anime_id,votes_count" > output/q7.csv
+cat q7/* >> output/q7.csv
 
 rm -rf q*

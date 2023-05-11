@@ -5,3 +5,5 @@ hdfs dfs -put /project/avsc/*.avsc /project/avsc
 
 hive -f sql/hive_part.hql
 
+sh scripts/EDA.sh
+

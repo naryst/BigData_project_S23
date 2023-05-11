@@ -1,4 +1,5 @@
 pylint
+numpy
 pyspark
 pandas
 streamlit

@@ -6,4 +6,4 @@ cd data/
 gdown 1amxJ_plPdc3_a9pOxdhuY1C1ZyrV3v-C 
 echo "================extracting from archive================"
 unzip anime-recommendation-database-2020.zip
-
+cd ..
