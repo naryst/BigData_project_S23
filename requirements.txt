@@ -4,3 +4,4 @@ pyspark
 pandas
 streamlit
 gdown
+altair
